@@ -1,0 +1,7 @@
+﻿*.dbf
+*.shp
+*.shx
+*.prj
+*.cpg
+yedek/
+tum_kodlar.txt

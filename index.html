@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TURQUA FIRE MAP ALARM / Yanma Aktivitesi Takvimi</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ÜST BAR: komut çubuğu -->
+<header class="cmdbar">
+  <div class="brand">
+    <img src="logo.png" alt="TURQUA Logo" class="brand-logo" onerror="this.hidden=true" />
+    <svg class="brand-mark" viewBox="0 0 24 24" role="img" aria-label="Uydu yörünge ve retikül amblemi">
+      <circle cx="12" cy="12" r="7" fill="none" stroke="#02D8E1" stroke-width="1" />
+      <ellipse cx="12" cy="12" rx="10" ry="4" fill="none" stroke="#14B8A6" stroke-width="0.8" transform="rotate(-35 12 12)" />
+      <path d="M12 2v5M12 17v5M2 12h5M17 12h5M9 9l6 6M15 9l-6 6" fill="none" stroke="#E2E8F0" stroke-width="0.7" />
+      <circle cx="18.8" cy="5.3" r="1.3" fill="#F59E0B" />
+    </svg>
+    <span class="brand-copy">
+      <span class="brand-name" aria-label="TURQUA FIRE HARMONY"><span class="brand-turqua">TURQUA</span> // FIRE HARMONY</span>
+      <span class="brand-sub">MODIS × VIIRS // UYDU YANGIN İSTİHBARATI</span>
+    </span>
+  </div>
+
+  <div class="cmd-actions">
+    <span id="sourceStatus" class="source-status" role="status">VERİ YÜKLENİYOR</span>
+    <span id="aoiCriticalAlarm" class="aoi-critical-alarm" role="alert" aria-live="assertive" hidden></span>
+    <span id="passStatus" class="pass-status" role="status">UYDU GEÇİŞİ: YÖRÜNGE VERİSİ BEKLENİYOR</span>
+    <button id="toggleAoi" class="btn" aria-expanded="true">BÖLGE</button>
+    <button id="toggleTelemetry" class="btn" aria-expanded="true">ÖZET</button>
+    <button id="btnLocal" class="btn" title="Yerel harmonized_fires.json dosyasını yükle">
+      YEREL VERİ
+    </button>
+    <button id="btnLive" class="btn" title="NASA FIRMS API üzerinden canlı veri çek">
+      CANLI VERİ
+    </button>
+    <label class="btn" title="JSON veya CSV dosyası yükle">
+      DOSYA YÜKLE
+      <input type="file" id="fileInput" accept=".csv,.json" hidden />
+    </label>
+    <button id="exportResults" class="btn">CSV İNDİR</button>
+    <button id="exportGeoJSON" class="btn">GEOJSON İNDİR</button>
+    <button id="settingsButton" class="btn">AYARLAR</button>
+  </div>
+</header>
+
+<!-- ANA IZGARA: 3B küre + sağ telemetri cetveli -->
+<main class="workspace">
+  <section class="globe-wrap">
+    <div id="globe"></div>
+
+    <div class="hud hud-bl">
+      <span id="hudCam">lon 35.00 / lat 39.00 / z 0.4</span>
+    </div>
+
+    <!-- Sol üst: görünüm kontrolleri -->
+    <div class="hud hud-tl">
+      <div class="hud-row"><span>İLGİ ALANI (AOI) VE TARİH SEÇİMİ</span></div>
+      <button class="btn btn-wide" id="drawAoi">HARİTADA ALAN ÇİZ</button>
+      <div class="aoi-grid">
+        <label>MIN LAT<input class="txt" id="minLat" type="number" step="0.01" value="35.8" /></label>
+        <label>MAX LAT<input class="txt" id="maxLat" type="number" step="0.01" value="42.1" /></label>
+        <label>MIN LON<input class="txt" id="minLon" type="number" step="0.01" value="25.6" /></label>
+        <label>MAX LON<input class="txt" id="maxLon" type="number" step="0.01" value="44.8" /></label>
+      </div>
+      <div class="preset-row">
+        <button class="btn" data-aoi-preset="turkey">TÜRKİYE</button>
+        <button class="btn" data-aoi-preset="mediterranean">AKDENİZ HAVZASI</button>
+        <button class="btn" data-aoi-preset="amazon">AMAZON</button>
+        <button class="btn" data-aoi-preset="global">KÜRESEL</button>
+      </div>
+      <div class="case-studies" aria-label="Vaka analizleri">
+        <button class="btn" data-case-study="mediterranean-2021">2021 AKDENİZ MEGA YANGINI</button>
+        <button class="btn" data-case-study="canakkale-hatay-2023">2023 ÇANAKKALE / HATAY</button>
+        <button class="btn" data-case-study="current-2026">2026 GÜNCEL SEZON</button>
+        <button class="btn" data-case-study="payas-sta">PAYAS / İSKENDERUN STA KONTROLÜ</button>
+      </div>
+      <p class="case-study-note">2021 ve 2023 vakalarında yerel kayıt yoksa gerçek FIRMS arşiv kayıtlarını indirmek için onay istenir; NASA MAP_KEY gerekir.</p>
+      <div class="aoi-grid date-grid">
+        <label>BAŞLANGIÇ<input class="txt" id="startMonth" type="month" min="2000-11" max="2026-12" value="2000-11" /></label>
+        <label>BİTİŞ<input class="txt" id="endMonth" type="month" min="2000-11" max="2026-12" value="2026-12" /></label>
+      </div>
+      <div class="date-playback">
+        <div class="date-playback-head">
+          <label for="playbackRange">GÜNLÜK TESPİT OYNATMA</label>
+          <output id="playbackDate" aria-live="polite">VERİ YOK</output>
+        </div>
+        <input id="playbackRange" type="range" min="0" max="0" value="0" aria-label="Yüklü tespit günleri" disabled />
+        <button class="btn btn-wide" id="playbackToggle" type="button" aria-pressed="false" disabled>OYNAT</button>
+        <p>Yalnızca yüklü tespit günleri oynatılır; eksik arşiv günleri sıfır aktivite sayılmaz.</p>
+      </div>
+      <button class="btn btn-wide" id="loadArchive">TARİHSEL VERİYİ İNDİR</button>
+      <button class="btn btn-wide" id="stopArchive" hidden>İNDİRMEYİ DURDUR</button>
+      <div class="archive-progress"><span id="archiveProgressText">ARŞİV: YEREL VERİ</span><progress id="archiveProgress" max="1" value="0"></progress></div>
+      <hr class="hud-hr" />
+      <div class="hud-row"><span>KATMAN</span></div>
+      <label class="gibs-control">GIBS UYDU GÖRÜNTÜ MODU
+        <select id="gibsLayerMode" class="txt">
+          <option value="standard">STANDART (ESRI + 3B ARAZİ)</option>
+          <option value="truecolor">NASA GIBS GERÇEK RENK (DUMAN GÖRÜNTÜSÜ)</option>
+          <option value="thermal">NASA GIBS VIIRS M11-I2-I1 (SAHTE RENK / GÖRSEL BAĞLAM)</option>
+          <option value="ndvi">NASA GIBS MODIS NDVI (BİTKİ ÖRTÜSÜ YOĞUNLUĞU)</option>
+          <option value="igbp">NASA GIBS IGBP (17 SINIF ARAZİ ÖRTÜSÜ)</option>
+        </select>
+      </label>
+      <label class="gibs-control">GIBS GÖRÜNTÜ TARİHİ
+        <input id="gibsDate" class="txt" type="date" value="2026-07-12" />
+      </label>
+      <button id="terrainToggle" class="btn btn-wide">3B ARAZİ / EĞİM: KAPALI</button>
+      <label class="chk orbital-toggle"><input type="checkbox" id="orbitToggle" /> UYDU YÖRÜNGE İZİ</label>
+      <label class="chk"><input type="checkbox" id="layerMODIS" checked /> MODIS ≈1 km</label>
+      <label class="chk"><input type="checkbox" id="layerVIIRS" checked /> VIIRS ≈375 m</label>
+      <label class="chk"><input type="checkbox" id="layerClusters" checked /> BİRLEŞİK KÜME</label>
+      <label class="chk"><input type="checkbox" id="layerFootprints" checked /> PİKSEL AYAK İZİ</label>
+      <label class="chk"><input type="checkbox" id="layerDensity" /> YOĞUNLUK ISI HARİTASI</label>
+      <label class="chk"><input type="checkbox" id="layerLandCover" /> BİTKİ ÖRTÜSÜ (MODIS IGBP)</label>
+      <label class="chk"><input type="checkbox" id="layerTimeAge" /> TESPİT YAŞI RENKLENDİRMESİ (1s/4s/12s)</label>
+      <hr class="hud-hr" />
+      <div class="hud-row"><span>KÜMELEME YARIÇAPI</span><b id="epsVal">0.8 km</b></div>
+      <input type="range" id="epsSlider" min="0.3" max="3.0" step="0.1" value="0.8" />
+      <p class="case-study-note">Kaynak confidence değerleri sensörler arasında birleştirilmez; küme desteği tespit ve sensör sayısıyla gösterilir.</p>
+      <div class="hud-row"><span>MİN. DELTA T</span><b id="dTVal">0 K</b></div>
+      <input type="range" id="dTSlider" min="0" max="40" value="0" />
+    </div>
+
+  </section>
+
+  <aside class="telemetry">
+    <div class="drawer-head">
+      <h2>AKTİVİTE ÖZETİ</h2>
+      <button id="closeTelemetry" class="btn" aria-label="Özeti kapat">KAPAT</button>
+    </div>
+    <div class="metric-readout">
+      <span>UYUMLAŞTIRILMIŞ TESPİT</span><b id="tmRaw">0</b>
+      <span>YANGIN KÜMESİ</span><b id="tmClusters">0</b>
+      <span>ÇOKLU SENSÖR TEYİDİ</span><b id="tmMulti">0</b>
+    </div>
+
+    <section class="sensor-bridge">
+      <h3>SENSÖR FARKI DÜZELTMESİ (MODIS/VIIRS)</h3>
+      <div class="metric-readout">
+        <span>1 km² EŞDEĞER İNDEKS</span><b id="sensorAdjustedIndex">0</b>
+        <span>HAM SAYIM FARKI</span><b id="sensorCorrection">VERİ YOK</b>
+      </div>
+      <p id="sensorBridgeNote">Piksel alanına göre sensör ağırlığı uygulanır.</p>
+    </section>
+
+    <div class="anomaly-section">
+      <h3>SEÇİLİ AY / TARİHSEL KIYAS</h3>
+      <div class="indicator">
+        <span>SEÇİLİ AY UYUMLAŞTIRILMIŞ AKTİVİTE</span>
+        <b id="currentActivity">VERİ YOK</b>
+      </div>
+      <div class="indicator">
+        <span id="historicalMedianLabel">TARİHSEL MEDYAN</span>
+        <b id="historicalMedian">VERİ YOK</b>
+      </div>
+      <div class="indicator indicator-anomaly">
+        <span>DURUM / ANOMALİ</span>
+        <b id="activityAnomaly">KAPSAMA YETERSİZ</b>
+      </div>
+      <canvas id="monthlyChart" aria-label="Aylık tarihsel medyan ve seçili yıl karşılaştırması"></canvas>
+    </div>
+    <section id="selectedEvent" class="selected-event" hidden>
+      <h3>SEÇİLİ OLAY TELEMETRİSİ</h3>
+      <div class="metric-readout">
+        <span>YANGIN REJİMİ</span><b id="selectedRegime">-</b>
+        <span>MODIS / VIIRS ÜYE</span><b id="selectedSensors">-</b>
+        <span>KAYNAK CONFIDENCE (HAM)</span><b id="selectedConfidence">-</b>
+        <span>SCAN×TRACK / BOW-TIE GENİŞLEME</span><b id="selectedBowTie">-</b>
+        <span>FRP / ΔT</span><b id="selectedThermal">-</b>
+        <span>TAHMİNİ BİYOKÜTLE / CO (FRP FAKTÖR MODELİ)</span><b id="selectedEmissions">-</b>
+      </div>
+      <p class="emissions-note">FRP tabanlı tahmin; MOPITT CO ölçümü veya atmosferik konsantrasyon verisi değildir.</p>
+      <div class="intelligence-card">
+        <h3>EN YÜKSEK GÖRELİ HEURİSTİK SKOR</h3>
+        <b id="intelligenceLead" class="intelligence-value">Analiz bekleniyor</b>
+        <p class="model-caveat">0–100 değerleri yalnızca bu olay içindeki sezgisel skor sıralamasıdır; kalibre edilmiş olasılık, yangın nedeni veya saha doğrulaması değildir.</p>
+        <div id="probabilityList" class="probability-list"></div>
+        <h3>SON YILLARDAKİ SIKLIK (TEKERRÜR)</h3>
+        <b id="recurrenceSummary" class="intelligence-value">-</b>
+        <span id="recurrenceMonths" class="intel-news">Mevsimsel dağılım: -</span>
+        <h3>İNSAN ETKİSİ GÖSTERGE SKORU</h3>
+        <b id="humanFactor" class="intelligence-value">-</b>
+        <h3>ARAZİ &amp; BİTKİ ÖRTÜSÜ (IGBP / OSM)</h3>
+        <b id="eventBiome" class="intelligence-value">Arazi sınıfı belirleniyor</b>
+        <h3>YANICI MADDE (FUEL LOAD) TİPİ</h3>
+        <b id="eventFuelLoad" class="intelligence-value">Yanıcı madde sınıfı belirleniyor</b>
+        <h3>KONUM &amp; ARAZİ</h3>
+        <b id="eventLocation" class="intelligence-value">Konum ayrıntısı bekleniyor</b>
+        <span id="eventElevation" class="intel-news">Rakım: DEM verisi bekleniyor.</span>
+        <h3>HABER TARAMASI (ADAY BAŞLIKLAR)</h3>
+        <span id="newsSummary" class="intel-news">Otomatik haber taraması resmi saha/ihbar eşlemesi değildir.</span>
+        <a id="newsLink" class="intel-link" href="#" target="_blank" rel="noopener noreferrer">HABER KAYNAĞINDA DOĞRULA ↗</a>
+        <h3>SAHA DOĞRULAMA (DETECTED vs REPORTED)</h3>
+        <b id="fieldValidation" class="intelligence-value">Uydu tespiti saha raporu değildir.</b>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<section class="calendar-panel" aria-label="Yanma aktivitesi takvimi">
+  <div class="calendar-head">
+    <h2>YANMA AKTİVİTESİ TAKVİMİ (2000 - 2026)</h2>
+    <div class="calendar-controls">
+      <label>METRİK
+        <select id="activityMetric" class="txt">
+          <option value="count">1 km² EŞDEĞER TESPİT YOĞUNLUĞU</option>
+          <option value="frp">1 km² EŞDEĞER FRP YOĞUNLUĞU (MW/km²)</option>
+        </select>
+      </label>
+      <label>RENK PALETİ
+        <select id="colorPalette" class="txt">
+          <option value="ylorrd">YL-OR-RD</option>
+          <option value="viridis">VIRIDIS / CIVIDIS</option>
+          <option value="inferno">INFERNO-MAT</option>
+        </select>
+      </label>
+      <button id="exportCalendar" class="btn">TAKVİM CSV</button>
+      <button id="toggleCalendarScope" class="btn" aria-pressed="false">AKTİF YILLAR</button>
+      <button id="toggleCalendar" class="btn" aria-expanded="true">DARALT</button>
+    </div>
+  </div>
+  <div class="calendar-body" id="calendarBody">
+    <div>
+      <div class="colorbar-row"><span>YOĞUNLUK</span><div id="colorbar" class="colorbar"></div><span id="colorbarMax">0</span></div>
+      <div id="calendarGrid" class="calendar-grid" role="grid" aria-label="Yıllara ve aylara göre yangın aktivitesi"></div>
+      <div id="calendarStatus" class="calendar-status">Tarihsel arşiv indirilmedi. Yerel ve canlı gerçek veriler gösteriliyor.</div>
+    </div>
+    <label class="palette-legend">HARİTA YOĞUNLUK PALETİ
+      <span>0</span><div id="mapColorbar" class="colorbar"></div><span id="mapColorbarMax">MAX</span>
+    </label>
+  </div>
+</section>
+
+<input type="checkbox" id="globalMode" hidden />
+
+<dialog id="liveModeDialog" class="mode-dialog">
+  <form method="dialog">
+    <h2>CANLI FIRMS VERİ ALANI</h2>
+    <p>Canlı uydu tespitlerinin alınacağı bölgeyi seçin.</p>
+    <div class="mode-actions">
+      <button type="button" class="btn" data-live-mode="turkey">TÜRKİYE CANLI</button>
+      <button type="button" class="btn" data-live-mode="global">DÜNYA (KÜRESEL) CANLI</button>
+      <button type="submit" class="btn btn-cancel">İPTAL</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settingsDialog" class="mode-dialog">
+  <form method="dialog">
+    <h2>VERİ KAYNAĞI AYARLARI</h2>
+    <label class="dialog-label" for="mapKey">NASA FIRMS MAP_KEY</label>
+    <input type="password" id="mapKey" class="txt" spellcheck="false" autocomplete="off"
+           placeholder="NASA FIRMS API anahtarı" />
+    <div class="mode-actions">
+      <button type="button" class="btn" id="saveKey">ANAHTARI KULLAN</button>
+      <button type="button" class="btn" id="settingsLive">CANLI VERİYİ YÜKLE</button>
+      <button type="submit" class="btn btn-cancel">KAPAT</button>
+    </div>
+    <p class="settings-note">Anahtar yalnızca bu tarayıcı oturumunda tutulur.</p>
+  </form>
+</dialog>
+
+<dialog id="legalDialog" class="mode-dialog legal-dialog">
+  <form method="dialog">
+    <h2>TURQUA FIRE MAP ALARM / VERİ, YÖNTEM &amp; YASAL BİLGİ</h2>
+    <h3>GÖREV VE KULLANIM AMACI</h3>
+    <p>Bu çalışma alanı, MODIS ve VIIRS aktif sıcak nokta kayıtlarını seçilen ilgi alanı ve tarih aralığında bir araya getirir. Takvim; mevsimsel örüntüleri ve olağandışı dönemleri incelemeye bilimsel bağlam sağlamayı amaçlar. FIRMS'e göre her tespit, bir veya daha fazla yangın ya da başka bir termal anomali içerebilen pikselin merkezidir; kesin yangın konumu veya boyutu değildir. Yangın aktivitesi orman yangınlarının yanında tarımsal yakma, arazi temizleme ve endüstriyel ısı kaynaklarını da içerebilir.</p>
+    <h3>UYDU TESPİTİ VE HARMONİZASYON</h3>
+    <p>MODIS ve VIIRS aktif ateş/termal anomali algılamaları farklı sensör ürünleridir. FIRMS'in yaklaşık piksel boyutları MODIS için 1 km, VIIRS için 375 m'dir; gerçek ayak izi tarama/izleme geometrisine göre değişir ve tespit koordinatı piksel merkezidir. Kaynak confidence alanı değiştirilmeden korunur; kategorik ve sayısal değerler yapay yüzdelere dönüştürülmez ve sensörler arasında birleştirilmez. Kümeler confidence olasılığı üretmez; yalnızca tespit ve sensör desteği gösterir. Piksel ayak izi ve FRP tabanlı aktivite normalizasyonu görsel/analitik karşılaştırmadır, ürünleri bilimsel olarak eşdeğer kılmaz. AOI, tarih aralığı, kümeleme yarıçapı ve renk paleti analiz görünümünü belirler. Tarihsel medyan ve anomali yalnızca gerekli arşiv ayları eksiksiz olduğunda sunulur; eksik dönemler sıfır aktivite sayılmaz.</p>
+    <h3>NASA GIBS GÖRÜNTÜ KATMANLARI</h3>
+    <p>VIIRS M11-I2-I1, düzeltilmiş yansıma verilerinden üretilen sahte renkli bir görüntü bileşimidir; termal kızılötesi ürün, aktif yangın algısı veya doğrulanmış yanmış alan katmanı değildir. Duman, yüzey ve yangın çevresini görsel olarak incelemeye yarar. Aktif sıcak nokta tespitleri ayrı FIRMS katmanında gösterilir.</p>
+    <h3>MODIS MCD12Q1 IGBP / BİTKİ ÖRTÜSÜ</h3>
+    <p>MODIS MCD12Q1 v6.1 yıllık arazi örtüsü ürünü IGBP sınıflarını sağlar. Küme seçildiğinde uygulama NASA GIBS'in 2024 yıllık IGBP karosundaki piksel rengini sınıf koduna çözer; yaklaşık 500 m sınıfı yerel arazi veya yangın nedeni için kesin saha kanıtı değildir. Uygulama içi bilinen sanayi sınırları ve OSM sanayi etiketi genel sınıfın önceliğindedir; tekrarlayan tespitler tek başına sanayi sınıfı oluşturmaz. Kaynaklar: <a href="https://www.earthdata.nasa.gov/data/catalog/lpcloud-mcd12q1-061" target="_blank" rel="noopener noreferrer">NASA/LP DAAC MCD12Q1 v6.1</a>, <a href="https://firms.modaps.eosdis.nasa.gov/content/academy/" target="_blank" rel="noopener noreferrer">NASA FIRMS Academy</a> (<a href="https://firms.modaps.eosdis.nasa.gov/academy/data_api/" target="_blank" rel="noopener noreferrer">API</a>, <a href="https://firms.modaps.eosdis.nasa.gov/academy/data_visualization/" target="_blank" rel="noopener noreferrer">görselleştirme</a>, <a href="https://firms.modaps.eosdis.nasa.gov/academy/data_subset/" target="_blank" rel="noopener noreferrer">AOI alt kümesi</a>) ve <a href="https://nasa-gibs.github.io/gibs-api-docs/" target="_blank" rel="noopener noreferrer">NASA GIBS servis kılavuzu</a>.</p>
+    <h3>FIRMS STATIC THERMAL ANOMALIES (STA)</h3>
+    <p>FIRMS Static Thermal Anomalies yaklaşımı, sabit termal kaynakları değerlendirmek için bağlam sağlar. Bu uygulama resmî NASA STA katmanını yüklemez; bilinen bölgeler için uygulama içi coğrafi sınırlar, OSM etiketleri ve yüklü kayıtlardaki tekrarları kullanır. Tekrar tek başına STA kanıtı değildir; uzun süren doğal yangınlar da aynı yerde birden çok gün algılanabilir. Bu sezgisel maske NASA sınıflandırması veya saha doğrulaması yerine geçmez. Yöntem bağlamı: <a href="https://www.earthdata.nasa.gov/data/tools/firms" target="_blank" rel="noopener noreferrer">NASA FIRMS ürün ve kaynak portalı</a>.</p>
+    <h3>MODIS / VIIRS ACTIVE FIRE USER GUIDES</h3>
+    <p>FIRMS, indirilen aktif ateş verilerinin statik kaynaklara veya çıkarımsal sıcak nokta türlerine atama yapmadığını belirtir. Bu uygulamadaki kaynak sınıfları ve insan etkisi göstergesi, kalibre edilmemiş sezgisel sıralamalardır; neden tayini, olasılık veya resmî rapor değildir. MODIS ve VIIRS tespitleri sensör çözünürlüğü, geçiş saati, bulut, piksel ayak izi ve algılama eşiğinden etkilenir. IGBP/OSM sınıfları ve tespit yaşı yalnızca bağlam sağlar. Tespit yaşı FIRMS kayıt zamanı ile tarayıcı saati arasındaki farktan hesaplanır; gerçek zamanlı sensör alarmı değildir. Kaynak: <a href="https://www.earthdata.nasa.gov/data/tools/firms/faq" target="_blank" rel="noopener noreferrer">NASA FIRMS SSS</a>.</p>
+    <p>Anomali göstergesi geçmiş aktiviteyle karşılaştırmadır, yangın tahmini veya saha doğrulaması değildir. Uydu geçiş zamanı, bulut, algılama eşiği ve sensör çözünürlüğü gözlemi etkiler; tek başına tespit yangının türünü ya da yerdeki koşulları kesinleştirmez.</p>
+    <p>Haber başlıkları konum ve tarih aralığıyla yapılan otomatik arama adaylarıdır; resmi ihbar, olay eşleşmesi veya yangın nedeni doğrulaması değildir.</p>
+    <p>FRP katsayılarından türetilen biyokütle ve CO değerleri model tahminidir; bu uygulama MOPITT CO gözlemi veya atmosferik konsantrasyon verisi indirmez.</p>
+    <h3>NASA FIRMS / LANCE / GIBS KAYNAK ATFI</h3>
+    <p>Veri kaynağı: NASA Fire Information for Resource Management System (FIRMS), LANCE / EOSDIS. FIRMS SSS'ye göre MODIS Terra verisi 2000-11, Aqua verisi 2002-07; VIIRS Suomi NPP verisi 2012-01-20, NOAA-20 verisi 2020-01-01 ve NOAA-21 verisi 2024-01-17'den itibaren mevcuttur. Ürün kapsamı sensöre göre değişir; indirme tarih aralığı bu başlangıçları uygular. Küresel görünümde NASA GIBS Blue Marble, yakınlaştırılmış görünümde Esri World Imagery harita altlığı kullanılır. NASA GIBS görselleri için istenen atıf: “NASA'nın Dünya Bilimi Veri ve Bilgi Sistemi (ESDIS) bünyesindeki NASA Küresel Görüntü Tarama Hizmetleri (GIBS) tarafından sağlanan görsellerin kullanımını kabul ediyoruz.”</p>
+    <h3>VERİ KULLANIMI</h3>
+    <p>Bu uygulama araştırma ve karar desteği içindir. Uydu tespitleri saha doğrulaması sayılmaz. Acil müdahalede resmi AFAD ve Orman Genel Müdürlüğü duyurularını esas alın; NASA kaynak atfını koruyun.</p>
+    <h3>GİZLİLİK</h3>
+    <p>Uygulama hesap veya sunucu tarafı oturum saklamaz. Veriler tarayıcıda işlenir; indirilen tarihsel özetler bu tarayıcının yerel depolamasında tutulur. FIRMS API anahtarı kaynak koda sabitlenmez; ancak canlı veya arşiv isteği tarayıcıdan gönderildiği için anahtar ağ isteklerinde görülebilir. Herkese açık kullanımda sunucu tarafı bir proxy ve kota denetimi kullanın. Harita karoları NASA GIBS ve Esri servislerinden yüklenir.</p>
+    <button type="submit" class="btn">KAPAT</button>
+  </form>
+</dialog>
+
+<footer class="legal-strip">
+  <span>NASA FIRMS / LANCE / GIBS VERİLERİ</span>
+  <button id="openLegal" type="button">[?] VERİ &amp; YASAL BİLGİ</button>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script type="module" src="js/api.js"></script>
+</body>
+</html>
